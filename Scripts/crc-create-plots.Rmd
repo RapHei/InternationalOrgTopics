@@ -1,0 +1,397 @@
+---
+title: 'Plots: update 11.09.2025'
+author: "Paul Coudry"
+date: "2023-08-31"
+Data:
+  html_document:
+    toc: yes
+---
+
+```{r}
+options(stringsAsFactors = FALSE)
+
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+library(here)
+knitr::opts_knit$set(root.dir = here())
+```
+
+
+```{r}
+library(stm)
+library(ggplot2)
+library(quanteda)
+```
+
+
+# Load needed data
+
+load stm à 40 topics
+```{r}
+load(here('Data/IO_stm_40.RData'))
+
+k <- 40 
+```
+
+
+## load and clean tokens
+
+```{r}
+load(here("Data/toks.RData"))
+
+toks_clean <- tokens_remove(toks, "[[:punct:]]$",
+                            valuetype = "regex")
+
+toks_clean <- tokens_remove(toks_clean, "[^[:alpha:]]$",
+                            valuetype = "regex")
+
+toks_clean <- tokens_tolower(toks_clean) 
+
+toks_clean <- tokens_remove(toks_clean,
+                            pattern = stopwords(language ="en"))
+
+toks_clean <- tokens_remove(toks_clean,
+                            pattern = stopwords(language ="es"))
+
+toks_clean <- tokens_wordstem(toks_clean)
+
+toks_clean <- as.tokens(toks_clean)
+```
+
+## create dtm
+```{r}
+dtm_clean <- dfm(toks_clean)
+
+dtm_clean <- dfm_trim(dtm_clean, min_docfreq = 15) 
+dtm_clean_stm <- asSTMCorpus(dtm_clean)
+```
+
+## save topic labels
+```{r}
+l <- labelTopics(mod, topics = k, n = 10)
+prob <- list()
+frex <- list()
+
+for(i in c(1:k)){
+  prob[[i]] <- paste(l$prob[i,], collapse = ' ')
+  frex[[i]] <- paste(l$frex[i,], collapse = ' ')
+}
+topic_labels <- data.frame(Prob = unlist(prob), Frex = unlist(frex), Topics = 1:k)
+
+popularity <- colSums(mod$theta)
+topic_labels$Popularity <- popularity / sum(popularity) # average proportion
+
+# sort by popularity
+topic_labels <- topic_labels[order(topic_labels$Popularity, decreasing = T),]
+```
+
+
+## load custom labels from csv
+```{r}
+labels <- read.csv(here("Data/IO_stm_Labels40.csv"), 
+                   sep = ';', 
+                   stringsAsFactors = F)
+
+labels <- unique(labels)
+labels <- labels[order(labels$Number),]
+labels
+```
+
+
+## create theta matrix
+
+```{r}
+theta.df <- as.data.frame(cbind(dtm_clean_stm$data$Year, mod$theta))
+
+colnames(theta.df) <- c("Year", paste("topic.", 1:k, sep = "")) # paste years and theta scores of each document for each topic
+
+theta.df <- aggregate(.~Year, FUN = mean, data = theta.df) # get trends by year
+
+#Years: 1930-2021
+length(theta.df$Year)
+
+years <- theta.df$Year
+```
+
+
+## transpose and melt to long
+
+```{r}
+theta.df <- as.data.frame(t(theta.df[,2:(k+1)]))
+
+colnames(theta.df) <- years #assign "years" vector to columns
+
+theta.df$topic <- rownames(theta.df)
+
+# from wide to long
+curve.df.long <- reshape2::melt(theta.df, id.vars = c("topic"))
+colnames(curve.df.long) <- c("topic","year","avg.theta")
+head(curve.df.long)
+```
+
+## assign labels
+```{r}
+curve.df.long$Number <- as.numeric(stringr::str_extract(curve.df.long$topic, "\\d+")) 
+curve.df.long <- merge(curve.df.long, labels, by = 'Number')
+
+curve.df.long$Label <- paste(curve.df.long$Number, curve.df.long$Label, sep = ". ")
+curve.df.long$year <- as.numeric(as.character(curve.df.long$year))
+```
+
+# Create trend plots (3 X 4, update Sept 18, 2025)
+
+```{r}
+select <- topic_labels$Topics[1:12] # 4 most prevalent topics
+select
+
+ggplot(curve.df.long[curve.df.long$Number %in% select,],
+       aes(x = year, y = avg.theta, group = Label, colour = Label))  +
+  geom_line(linetype = "solid", size = 1.5) +
+  theme_bw() + 
+  theme(legend.position="bottom",
+        legend.text=element_text(size=8),
+        legend.title=element_blank(),
+        plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) +
+  labs(y = 'Topic Prevalence') +
+  xlim(1975,2021) +
+  facet_wrap(.~Label)
+
+ggsave(here("Plots/topic_trends_all12.png"), width = 25, height = 15, units = "cm", res = 500)
+```
+
+<!-- # Create trend plots (4 by 4) -->
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[1:4] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_1.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[5:8] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_2.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[9:12] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_3.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[13:16] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_4.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[17:20] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_5.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[21:24] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_6.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[25:28] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_7.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[29:32] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_8.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[33:36] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_9.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- select <- topic_labels$Topics[37:40] # 4 most prevalent topics -->
+<!-- select -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Number %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  + -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0.5,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   xlim(1975,2021) + -->
+<!--   facet_wrap(.~Label) -->
+
+<!-- ggsave("Plots/topic_trends_10.png", width = 25, height = 15, units = "cm") -->
+<!-- ``` -->
+
+
+
+<!-- ## Trends of topic groups -->
+
+<!-- ```{r} -->
+<!-- # create groups and assign topic numbers -->
+<!-- curve.df.long$Group <- NA -->
+
+<!-- curve.df.long$Group[curve.df.long$Number %in% c(24,32,12,20)] <- 'Arbeitsmigration' -->
+<!-- curve.df.long$Group[curve.df.long$Number %in% c(4,34,14,25)] <- 'Armut bei Einwanderern'  -->
+<!-- curve.df.long$Group[curve.df.long$Number %in% c(25,2,6,16)] <- 'Bildungspolitik OECD' -->
+<!-- curve.df.long$Group[curve.df.long$Number %in% c(15,23,10,11)] <- 'Humanitaerarbeit' -->
+<!-- curve.df.long$Group[curve.df.long$Number %in% c(36,39)] <- 'Kinderbetreuung' -->
+<!-- curve.df.long$Group[curve.df.long$Number %in% c(8,30)] <- 'Sprachhilfe Einwanderer' -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- # plot by group -->
+<!-- select <- c('Arbeitsmigration','Armut bei Einwanderern','Humanitaerarbeit','Sprachhilfe Einwanderer') # select by group -->
+
+<!-- ggplot(curve.df.long[curve.df.long$Group %in% select,], -->
+<!--        aes(x = year, y = avg.theta, group = Label, colour = Label))  +  -->
+<!--   geom_line(linetype = "solid") + -->
+<!--   theme_bw() +  -->
+<!--   theme(legend.position="bottom", -->
+<!--         legend.text=element_text(size=8), -->
+<!--         legend.title=element_blank(), -->
+<!--         plot.margin=unit(c(0,0.5,0,0.5), "cm")) + -->
+<!--   labs(y = 'Topic Prevalence') + -->
+<!--   facet_wrap(.~ curve.df.long$Group[curve.df.long$Group %in% select]) + -->
+<!--   xlim(1980,2021) -->
+<!-- ``` -->
+
