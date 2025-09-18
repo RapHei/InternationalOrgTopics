@@ -158,7 +158,7 @@ ggplot(curve.df.long[curve.df.long$Number %in% select,],
   xlim(1975,2021) +
   facet_wrap(.~Label)
 
-ggsave(here("Plots/topic_trends_all12.png"), width = 25, height = 15, units = "cm", res = 500)
+ggsave(here("Plots/topic_trends_all12.png"), height = 8, width = 11, units = "in", dpi = 300)
 ```
 
 <!-- # Create trend plots (4 by 4) -->
